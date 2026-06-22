@@ -52,18 +52,21 @@ static void PrintHelp()
       rec stop                      stop recording -> encodes to M4A (AAC)
       status                        show engine status
       levels                        show per-input peak meters
+      complete <text>               show Tab-completion candidates for a partial command
       help                          this help
       quit | exit                   shut down cleanly
+
+    Press <Tab> to auto-complete commands, sub-commands, device ids (R0/C0..) and input ids.
     """);
 }
 
 static void Repl(DeviceCatalog catalog, MixerEngine engine)
 {
     PrintHelp();
+    var editor = new LineEditor(tokens => CompletionCandidates(tokens, catalog, engine));
     while (true)
     {
-        Console.Write("> ");
-        string? line = Console.ReadLine();
+        string? line = editor.ReadLine("> ");
         if (line is null) break; // EOF (e.g. piped input ended)
         line = line.Replace("﻿", ""); // strip stray BOM from piped/redirected UTF-8 input
         var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -119,6 +122,10 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
 
                 case "levels":
                     engine.PrintLevels(Console.Out);
+                    break;
+
+                case "complete":
+                    HandleComplete(catalog, engine, line);
                     break;
 
                 case "help":
@@ -229,4 +236,79 @@ static int ParseIndex(string token, char prefix)
 static void Require(bool condition, string message)
 {
     if (!condition) throw new ArgumentException(message);
+}
+
+// ---- Tab completion ---------------------------------------------------------
+
+/// <summary>
+/// Returns the candidate strings valid for the token currently being completed
+/// (the last element of <paramref name="tokens"/>), based on the command context.
+/// </summary>
+static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, DeviceCatalog catalog, MixerEngine engine)
+{
+    int slot = tokens.Count - 1; // index of the token being completed
+    if (slot == 0)
+        return AllCommands();
+
+    switch (tokens[0].ToLowerInvariant())
+    {
+        case "add-input":
+            if (slot == 1) return new[] { "loopback", "mic" };
+            if (slot == 2)
+                return tokens[1].ToLowerInvariant() switch
+                {
+                    "loopback" => RenderTokens(catalog),
+                    "mic" => CaptureTokens(catalog),
+                    _ => Enumerable.Empty<string>(),
+                };
+            return Enumerable.Empty<string>();
+
+        case "enable":
+            if (slot == 1) return InputIds(engine);
+            if (slot == 2) return new[] { "on", "off" };
+            return Enumerable.Empty<string>();
+
+        case "vol":
+            if (slot == 1) return InputIds(engine);
+            return Enumerable.Empty<string>();
+
+        case "monitor":
+            if (slot == 1) return RenderTokens(catalog).Append("off");
+            return Enumerable.Empty<string>();
+
+        case "rec":
+            if (slot == 1) return new[] { "start", "stop" };
+            return Enumerable.Empty<string>();
+
+        default:
+            return Enumerable.Empty<string>();
+    }
+}
+
+static string[] AllCommands() => new[]
+{
+    "devices", "refresh", "add-input", "inputs", "enable", "vol",
+    "monitor", "rec", "status", "levels", "complete", "help", "quit", "exit",
+};
+
+static IEnumerable<string> RenderTokens(DeviceCatalog c) =>
+    Enumerable.Range(0, c.RenderDevices.Count).Select(i => "R" + i);
+
+static IEnumerable<string> CaptureTokens(DeviceCatalog c) =>
+    Enumerable.Range(0, c.CaptureDevices.Count).Select(i => "C" + i);
+
+static IEnumerable<string> InputIds(MixerEngine e) =>
+    e.Inputs.Select(s => s.Id);
+
+/// <summary>Implements the `complete &lt;text&gt;` command: prints what Tab would offer for the rest of the line.</summary>
+static void HandleComplete(DeviceCatalog catalog, MixerEngine engine, string line)
+{
+    // Strip the leading "complete" verb but keep the remainder verbatim (a trailing
+    // space matters — it opens a fresh argument slot).
+    string rest = line.Length > "complete".Length ? line["complete".Length..] : "";
+    if (rest.StartsWith(' ')) rest = rest[1..];
+
+    var tokens = LineEditor.Tokenize(rest);
+    var matches = LineEditor.Match(CompletionCandidates(tokens, catalog, engine), tokens[^1]);
+    Console.WriteLine(matches.Count == 0 ? "  (no candidates)" : "  " + string.Join("   ", matches));
 }
