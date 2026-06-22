@@ -27,6 +27,9 @@ public sealed class MixerEngine : IDisposable
     private Thread? _pumpThread;
     private volatile bool _pumpStop;
 
+    private Thread? _meterThread;
+    private volatile bool _meterStop;
+
     public MixerEngine()
     {
         _mixer = new MixingSampleProvider(MixFormat) { ReadFully = true };
@@ -143,13 +146,16 @@ public sealed class MixerEngine : IDisposable
         return _recorder.Stop();
     }
 
-    // ---- record pump (used only when recording without a monitor) -------
+    // ---- pull pumps -----------------------------------------------------
+    // Exactly one puller drives the mixer at a time. The monitor WasapiOut is one;
+    // when there is no monitor, a background thread pulls instead: the record pump
+    // (while recording) or the meter-drive pump (while the live levels view is open).
 
     private void StartPump()
     {
         if (_pumpThread != null) return;
         _pumpStop = false;
-        _pumpThread = new Thread(PumpLoop) { IsBackground = true, Name = "RecordPump" };
+        _pumpThread = new Thread(() => DrivePull(() => _pumpStop)) { IsBackground = true, Name = "RecordPump" };
         _pumpThread.Start();
     }
 
@@ -161,7 +167,34 @@ public sealed class MixerEngine : IDisposable
         _pumpThread = null;
     }
 
-    private void PumpLoop()
+    /// <summary>
+    /// Drives the mixer for the live levels view so input peaks update even while idle.
+    /// Returns false (no-op) when a monitor or the record pump is already pulling — metering
+    /// is driven by them in that case, and two pullers must never run at once.
+    /// </summary>
+    public bool StartMeterDrive()
+    {
+        if (_monitorOut != null || _pumpThread != null) return false;
+        if (_meterThread != null) return true;
+        _meterStop = false;
+        _meterThread = new Thread(() => DrivePull(() => _meterStop)) { IsBackground = true, Name = "MeterDrive" };
+        _meterThread.Start();
+        return true;
+    }
+
+    public void StopMeterDrive()
+    {
+        if (_meterThread == null) return;
+        _meterStop = true;
+        _meterThread.Join(2000);
+        _meterThread = null;
+    }
+
+    /// <summary>
+    /// Pull the tap at wall-clock rate (driving mixing + metering, plus the WAV write when a
+    /// record writer is set), discarding the audio buffer, until <paramref name="stop"/> is set.
+    /// </summary>
+    private void DrivePull(Func<bool> stop)
     {
         int frames = MixFormat.SampleRate / 50;          // ~20 ms blocks
         int samples = frames * MixFormat.Channels;
@@ -169,13 +202,13 @@ public sealed class MixerEngine : IDisposable
         var sw = Stopwatch.StartNew();
         long producedFrames = 0;
 
-        while (!_pumpStop)
+        while (!stop())
         {
-            int n = _tap.Read(buf, 0, samples);          // tap writes to the WAV as a side effect
+            int n = _tap.Read(buf, 0, samples);          // tap writes to the WAV as a side effect (if recording)
             producedFrames += n / MixFormat.Channels;
 
-            // Throttle to wall-clock: ReadFully means the mixer never blocks, so without
-            // this we would write silence far faster than real time -> a huge wrong-length file.
+            // Throttle to wall-clock: ReadFully means the mixer never blocks, so without this
+            // we would spin and (when recording) write silence far faster than real time.
             double targetMs = producedFrames * 1000.0 / MixFormat.SampleRate;
             double sleepMs = targetMs - sw.Elapsed.TotalMilliseconds;
             if (sleepMs > 1) Thread.Sleep((int)sleepMs);
@@ -224,6 +257,7 @@ public sealed class MixerEngine : IDisposable
         {
             try { RecStop(); } catch { /* fall through to dispose */ }
         }
+        StopMeterDrive();
         StopPump();
         StopMonitorInternal();
 
