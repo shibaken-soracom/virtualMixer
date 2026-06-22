@@ -37,6 +37,7 @@ public sealed class MixerEngine : IDisposable
     public IReadOnlyCollection<InputSource> Inputs => _inputs.Values;
     public bool IsRecording => _recorder.IsRecording;
     public string? MonitorDeviceName => _monitorDeviceName;
+    public string? MonitorDeviceId => _monitorDeviceId;
 
     // ---- inputs ---------------------------------------------------------
 
@@ -75,6 +76,74 @@ public sealed class MixerEngine : IDisposable
 
     public InputSource Get(string id) =>
         _inputs.TryGetValue(id, out var s) ? s : throw new KeyNotFoundException($"no input '{id}'");
+
+    /// <summary>Remove and dispose every input, resetting input id numbering.</summary>
+    public void ClearInputs()
+    {
+        foreach (var s in _inputs.Values)
+        {
+            if (s.Enabled) _mixer.RemoveMixerInput(s.MixerNode);
+            s.Dispose();
+        }
+        _inputs.Clear();
+        _nextInputNumber = 0;
+    }
+
+    // ---- presets --------------------------------------------------------
+
+    /// <summary>Capture the current inputs + monitor selection as a serialisable config.</summary>
+    public MixerConfig ExportConfig()
+    {
+        var inputs = _inputs.Values
+            .Select(s => new InputConfig(s.Kind.ToString(), s.DeviceId, s.DeviceName, s.Volume, s.Enabled))
+            .ToList();
+        DeviceRef? monitor = _monitorDeviceId != null && _monitorDeviceName != null
+            ? new DeviceRef(_monitorDeviceId, _monitorDeviceName)
+            : null;
+        return new MixerConfig(1, monitor, inputs);
+    }
+
+    /// <summary>Replace the current setup with a saved config, resolving devices via the catalog.</summary>
+    public void ApplyConfig(MixerConfig cfg, DeviceCatalog catalog, TextWriter log)
+    {
+        MonitorOff();
+        ClearInputs();
+
+        foreach (var ic in cfg.Inputs)
+        {
+            bool isLoopback = string.Equals(ic.Kind, nameof(SourceKind.Loopback), StringComparison.OrdinalIgnoreCase);
+            var kind = isLoopback ? SourceKind.Loopback : SourceKind.Capture;
+            MMDevice? dev = isLoopback
+                ? catalog.FindRender(ic.DeviceId, ic.DeviceName)
+                : catalog.FindCapture(ic.DeviceId, ic.DeviceName);
+            if (dev == null)
+            {
+                log.WriteLine($"  ! skipped {kind} input: device not found ({ic.DeviceName})");
+                continue;
+            }
+            try
+            {
+                var src = AddInput(kind, dev);
+                SetVolume(src.Id, ic.Volume);
+                if (!ic.Enabled) Enable(src.Id, false);
+                log.WriteLine($"  restored {src.Id} {kind} <- {src.DeviceName}  vol {ic.Volume * 100:0}%{(ic.Enabled ? "" : " (off)")}");
+            }
+            catch (Exception ex)
+            {
+                log.WriteLine($"  ! failed to add {kind} input ({ic.DeviceName}): {ex.Message}");
+            }
+        }
+
+        if (cfg.Monitor != null)
+        {
+            var mon = catalog.FindRender(cfg.Monitor.Id, cfg.Monitor.Name);
+            if (mon == null)
+                log.WriteLine($"  ! monitor device not found ({cfg.Monitor.Name})");
+            else
+                try { SetMonitor(mon); log.WriteLine($"  monitor -> {mon.FriendlyName}"); }
+                catch (Exception ex) { log.WriteLine($"  ! monitor not set: {ex.Message}"); }
+        }
+    }
 
     // ---- monitor --------------------------------------------------------
 
