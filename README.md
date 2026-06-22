@@ -154,3 +154,8 @@ WasapiCapture (mic) ──┘                                                   
   (see the scope note above).
 - Tab completion and the live `levels` view are interactive-console features; under
   redirected stdin the editor falls back to plain `ReadLine` and `levels` prints a snapshot.
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and distribute for any purpose, commercial or
+not. The bundled dependency [NAudio](https://github.com/naudio/NAudio) is also MIT-licensed.
