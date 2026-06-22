@@ -51,7 +51,7 @@ static void PrintHelp()
       rec start [path]              start recording (default: mix_yyyyMMdd_HHmmss.m4a)
       rec stop                      stop recording -> encodes to M4A (AAC)
       status                        show engine status
-      levels                        show per-input peak meters
+      levels                        live input meters (Esc/Enter/q to return)
       complete <text>               show Tab-completion candidates for a partial command
       help                          this help
       quit | exit                   shut down cleanly
@@ -121,7 +121,7 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
                     break;
 
                 case "levels":
-                    engine.PrintLevels(Console.Out);
+                    LiveLevels(engine);
                     break;
 
                 case "complete":
@@ -236,6 +236,77 @@ static int ParseIndex(string token, char prefix)
 static void Require(bool condition, string message)
 {
     if (!condition) throw new ArgumentException(message);
+}
+
+// ---- live levels ------------------------------------------------------------
+
+/// <summary>
+/// Live input meters that refresh in place until the user presses Esc / Enter / q.
+/// Falls back to a single snapshot when stdin is redirected (no interactive console).
+/// </summary>
+static void LiveLevels(MixerEngine engine)
+{
+    if (Console.IsInputRedirected)
+    {
+        engine.PrintLevels(Console.Out);
+        return;
+    }
+
+    // Drive the mixer while the view is open so peaks update even when idle
+    // (no-op if a monitor or recording is already pulling the mixer).
+    bool drove = engine.StartMeterDrive();
+    bool cursorWasVisible = true;
+    try { cursorWasVisible = Console.CursorVisible; } catch { }
+    try { Console.CursorVisible = false; } catch { }
+
+    try
+    {
+        Console.WriteLine("Live levels — press Esc / Enter / q to return");
+        int top = Console.CursorTop;
+
+        while (true)
+        {
+            var inputs = engine.Inputs.ToList();
+            Console.SetCursorPosition(0, top);
+            if (inputs.Count == 0)
+            {
+                WriteMeterLine("  (no inputs — add one with 'add-input')");
+            }
+            else
+            {
+                foreach (var s in inputs)
+                {
+                    float peak = Math.Clamp(s.LastPeak, 0f, 1f);
+                    int bars = (int)Math.Round(peak * 30);
+                    string label = s.Enabled ? s.Id : $"{s.Id}(off)";
+                    WriteMeterLine($"  {label,-7} {new string('#', bars).PadRight(30)} {peak * 100,5:0.0}%");
+                }
+            }
+
+            if (Console.KeyAvailable)
+            {
+                var k = Console.ReadKey(intercept: true).Key;
+                if (k is ConsoleKey.Escape or ConsoleKey.Enter or ConsoleKey.Q)
+                    break;
+            }
+            Thread.Sleep(100);
+        }
+    }
+    finally
+    {
+        if (drove) engine.StopMeterDrive();
+        try { Console.CursorVisible = cursorWasVisible; } catch { }
+        Console.WriteLine();
+    }
+}
+
+/// <summary>Write one meter row, space-padded to the console width so longer previous rows are erased.</summary>
+static void WriteMeterLine(string text)
+{
+    int width;
+    try { width = Console.BufferWidth - 1; } catch { width = 60; }
+    if (text.Length < width) text = text.PadRight(width);
+    Console.WriteLine(text);
 }
 
 // ---- Tab completion ---------------------------------------------------------
