@@ -39,7 +39,7 @@ dotnet run -c Release
 | `vol <id> <0-200>` | input volume (100 = unity, up to 200 = +6 dB) |
 | `monitor Rn` | play the mix out to render device `Rn` |
 | `monitor off` | stop monitoring |
-| `rec start [path]` | start recording (default `mix_yyyyMMdd_HHmmss.m4a`) |
+| `rec start [path]` | start recording (default `recordings/mix_yyyyMMdd_HHmmss.m4a`) |
 | `rec stop` | stop and encode to M4A (AAC, 192 kbps) |
 | `status` / `levels` | engine status / per-input peak meters |
 | `quit` / `exit` | shut down cleanly |

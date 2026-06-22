@@ -48,7 +48,7 @@ static void PrintHelp()
       vol <id> <0-200>              set input volume (100 = unity, up to 200 = +6 dB boost)
       monitor Rn                    play the mix out to render device Rn (to hear the balance)
       monitor off                   stop monitoring
-      rec start [path]              start recording (default: mix_yyyyMMdd_HHmmss.m4a)
+      rec start [path]              start recording (default: recordings/mix_yyyyMMdd_HHmmss.m4a)
       rec stop                      stop recording -> encodes to M4A (AAC)
       status                        show engine status
       levels                        show per-input peak meters
@@ -196,7 +196,7 @@ static void HandleRec(MixerEngine engine, string[] parts)
         case "start":
             string path = parts.Length >= 3
                 ? parts[2]
-                : $"mix_{DateTime.Now:yyyyMMdd_HHmmss}.m4a";
+                : Path.Combine("recordings", $"mix_{DateTime.Now:yyyyMMdd_HHmmss}.m4a");
             string full = engine.RecStart(path);
             Console.WriteLine($"  recording -> {full}");
             break;

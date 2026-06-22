@@ -7,6 +7,10 @@ obj/
 *.wav
 *.tmp.wav
 
+# Saved recordings (keep the folder, ignore its contents)
+recordings/*
+!recordings/.gitkeep
+
 # IDE / user files
 .vs/
 *.user
