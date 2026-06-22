@@ -1,0 +1,17 @@
+# .NET build output
+bin/
+obj/
+
+# Recording output
+*.m4a
+*.wav
+*.tmp.wav
+
+# IDE / user files
+.vs/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+desktop.ini
