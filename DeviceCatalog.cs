@@ -52,6 +52,15 @@ public sealed class DeviceCatalog : IDisposable
     public MMDevice? DefaultRender() =>
         DefaultRenderId is null ? null : RenderDevices.FirstOrDefault(d => d.ID == DefaultRenderId);
 
+    /// <summary>Resolve a render device by stable endpoint id, falling back to friendly name.</summary>
+    public MMDevice? FindRender(string id, string name) => FindIn(RenderDevices, id, name);
+
+    /// <summary>Resolve a capture device by stable endpoint id, falling back to friendly name.</summary>
+    public MMDevice? FindCapture(string id, string name) => FindIn(CaptureDevices, id, name);
+
+    private static MMDevice? FindIn(IReadOnlyList<MMDevice> list, string id, string name) =>
+        list.FirstOrDefault(d => d.ID == id) ?? list.FirstOrDefault(d => d.FriendlyName == name);
+
     public void Print(TextWriter w)
     {
         w.WriteLine("Render devices (use for loopback source / monitor output):");

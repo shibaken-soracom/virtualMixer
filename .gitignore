@@ -11,6 +11,10 @@ obj/
 recordings/*
 !recordings/.gitkeep
 
+# Saved presets (machine-specific device ids; keep folder, ignore contents)
+presets/*
+!presets/.gitkeep
+
 # IDE / user files
 .vs/
 *.user

@@ -53,6 +53,9 @@ static void PrintHelp()
       status                        show engine status
       levels                        live input meters (Esc/Enter/q to return)
       complete <text>               show Tab-completion candidates for a partial command
+      save <name>                   save current inputs + monitor as a preset
+      load <name>                   load a preset (replaces current setup)
+      presets                       list saved presets
       help                          this help
       quit | exit                   shut down cleanly
 
@@ -126,6 +129,22 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
 
                 case "complete":
                     HandleComplete(catalog, engine, line);
+                    break;
+
+                case "save":
+                    Require(parts.Length == 2, "usage: save <name>");
+                    Console.WriteLine($"  saved: {PresetStore.Save(parts[1], engine.ExportConfig())}");
+                    break;
+
+                case "load":
+                    Require(parts.Length == 2, "usage: load <name>");
+                    Console.WriteLine($"  loading preset '{parts[1]}'...");
+                    engine.ApplyConfig(PresetStore.Load(parts[1]), catalog, Console.Out);
+                    break;
+
+                case "presets":
+                    var presetNames = PresetStore.List();
+                    Console.WriteLine(presetNames.Count == 0 ? "  (no presets)" : "  " + string.Join("   ", presetNames));
                     break;
 
                 case "help":
@@ -351,6 +370,11 @@ static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, De
             if (slot == 1) return new[] { "start", "stop" };
             return Enumerable.Empty<string>();
 
+        case "save":
+        case "load":
+            if (slot == 1) return PresetStore.List();
+            return Enumerable.Empty<string>();
+
         default:
             return Enumerable.Empty<string>();
     }
@@ -359,7 +383,7 @@ static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, De
 static string[] AllCommands() => new[]
 {
     "devices", "refresh", "add-input", "inputs", "enable", "vol",
-    "monitor", "rec", "status", "levels", "complete", "help", "quit", "exit",
+    "monitor", "rec", "status", "levels", "complete", "save", "load", "presets", "help", "quit", "exit",
 };
 
 static IEnumerable<string> RenderTokens(DeviceCatalog c) =>
