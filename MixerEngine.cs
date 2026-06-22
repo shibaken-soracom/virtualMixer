@@ -312,8 +312,8 @@ public sealed class MixerEngine : IDisposable
         if (_inputs.Count == 0) { w.WriteLine("(no inputs)"); return; }
         foreach (var s in _inputs.Values)
         {
-            int bars = (int)Math.Round(Math.Clamp(s.LastPeak, 0f, 1f) * 30);
-            w.WriteLine($"  {s.Id}  {new string('#', bars).PadRight(30)} {s.LastPeak * 100,5:0.0}%");
+            string label = s.Enabled ? s.Id : $"{s.Id}!";
+            w.WriteLine($"  {label,-8} {Meter.Bar(s.LastPeak, 30)}  {Meter.DbText(s.LastPeak)} dB");
         }
     }
 

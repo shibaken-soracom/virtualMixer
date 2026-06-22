@@ -278,28 +278,35 @@ static void LiveLevels(MixerEngine engine)
     try { cursorWasVisible = Console.CursorVisible; } catch { }
     try { Console.CursorVisible = false; } catch { }
 
+    int width = SafeWidth();
+    // Layout: "  " + id(8) + " " + bar + "  " + "-xx.x dB" + "  " + device
+    int barWidth = Math.Clamp(width - 32, 12, 48);
+    int nameWidth = Math.Max(0, width - (2 + 8 + 1 + barWidth + 2 + 8 + 2));
+
+    // Inputs can't be added/removed while this modal view is open, so the row
+    // count is fixed: one row per input (or a single "no inputs" row).
+    int rows = Math.Max(1, engine.Inputs.Count);
+
+    Console.WriteLine("Live levels (dBFS) — green ok / yellow hot / red clip — Esc, Enter or q to return");
+    // Reserve the block here so the buffer scrolls at most once now; afterwards we
+    // only ever overwrite these fixed rows in place (never print newlines into them).
+    for (int i = 0; i < rows; i++) Console.WriteLine();
+    int top = Console.CursorTop - rows;
+
     try
     {
-        Console.WriteLine("Live levels — press Esc / Enter / q to return");
-        int top = Console.CursorTop;
-
         while (true)
         {
             var inputs = engine.Inputs.ToList();
-            Console.SetCursorPosition(0, top);
-            if (inputs.Count == 0)
+            for (int i = 0; i < rows; i++)
             {
-                WriteMeterLine("  (no inputs — add one with 'add-input')");
-            }
-            else
-            {
-                foreach (var s in inputs)
-                {
-                    float peak = Math.Clamp(s.LastPeak, 0f, 1f);
-                    int bars = (int)Math.Round(peak * 30);
-                    string label = s.Enabled ? s.Id : $"{s.Id}(off)";
-                    WriteMeterLine($"  {label,-7} {new string('#', bars).PadRight(30)} {peak * 100,5:0.0}%");
-                }
+                Console.SetCursorPosition(0, top + i);
+                if (inputs.Count == 0)
+                    WriteCell("  (no inputs — add one with 'add-input')", width);
+                else if (i < inputs.Count)
+                    DrawMeterRow(inputs[i], barWidth, nameWidth, width);
+                else
+                    WriteCell("", width);
             }
 
             if (Console.KeyAvailable)
@@ -314,18 +321,62 @@ static void LiveLevels(MixerEngine engine)
     finally
     {
         if (drove) engine.StopMeterDrive();
+        try { Console.ResetColor(); } catch { }
+        try { Console.SetCursorPosition(0, top + rows); } catch { }
         try { Console.CursorVisible = cursorWasVisible; } catch { }
         Console.WriteLine();
     }
 }
 
-/// <summary>Write one meter row, space-padded to the console width so longer previous rows are erased.</summary>
-static void WriteMeterLine(string text)
+/// <summary>Draw one coloured meter row in place: id, dB-scaled bar (green/yellow/red), dBFS, device.</summary>
+static void DrawMeterRow(InputSource s, int barWidth, int nameWidth, int totalWidth)
 {
-    int width;
-    try { width = Console.BufferWidth - 1; } catch { width = 60; }
+    float peak = Math.Clamp(s.LastPeak, 0f, 1f);
+    int filled = (int)Math.Round(Meter.Fraction(peak) * barWidth);
+    string label = s.Enabled ? s.Id : $"{s.Id}!";   // '!' marks a muted/disabled input
+
+    Console.Write($"  {label,-8} ");
+
+    var prev = Console.ForegroundColor;
+    for (int i = 0; i < barWidth; i++)
+    {
+        double f = (i + 1) / (double)barWidth;
+        if (i < filled)
+        {
+            Console.ForegroundColor = f <= 0.6 ? ConsoleColor.Green
+                                    : f <= 0.85 ? ConsoleColor.Yellow
+                                    : ConsoleColor.Red;
+            Console.Write('█');
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write('░');
+        }
+    }
+    Console.ForegroundColor = prev;
+
+    string name = s.DeviceName.Length > nameWidth && nameWidth > 1
+        ? s.DeviceName[..(nameWidth - 1)] + "…"
+        : s.DeviceName;
+    string tail = $"  {Meter.DbText(peak)} dB  {name}";
+    // Pad to fill the row (no newline) so a longer previous frame is erased without scrolling.
+    int used = 2 + 8 + 1 + barWidth;
+    WriteCell(tail, totalWidth - used);
+}
+
+static int SafeWidth()
+{
+    try { return Math.Clamp(Console.BufferWidth - 1, 40, 120); } catch { return 80; }
+}
+
+/// <summary>Write text padded/truncated to exactly <paramref name="width"/> cells, WITHOUT a trailing newline.</summary>
+static void WriteCell(string text, int width)
+{
+    if (width <= 0) return;
     if (text.Length < width) text = text.PadRight(width);
-    Console.WriteLine(text);
+    else if (text.Length > width) text = text[..width];
+    Console.Write(text);
 }
 
 // ---- Tab completion ---------------------------------------------------------
