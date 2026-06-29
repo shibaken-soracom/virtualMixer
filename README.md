@@ -40,8 +40,8 @@ vol i0 80                 # PC audio down to 80%
 vol i1 120                # mic boosted to 120% (+~1.6 dB)
 levels                    # watch the live meters, balance by ear/eye (Esc to return)
 monitor R0                # hear the mix on headphones — a DIFFERENT device than captured!
-rec start podcast.m4a     # start recording the mix
-rec stop                  # stop → encodes to podcast.m4a
+rec start podcast         # start recording the mix (saved to recordings/podcast.m4a)
+rec stop                  # stop → encodes to recordings/podcast.m4a
 save podcast              # remember this setup as a preset
 quit
 ```
@@ -59,8 +59,9 @@ quit
 | `vol <id> <0-200>` | set input volume (`100` = unity, up to `200` = +6 dB boost) |
 | `monitor Rn` | play the mix out to render device `Rn` (to hear the balance) |
 | `monitor off` | stop monitoring |
-| `rec start [path]` | start recording (default `recordings/mix_yyyyMMdd_HHmmss.m4a`) |
+| `rec start [filename]` | start recording into `recordings/` (default `mix_yyyyMMdd_HHmmss.m4a`); `.m4a` is appended if missing |
 | `rec stop` | stop recording → encodes to M4A (AAC, 192 kbps) |
+| `explorer` | open the `recordings/` folder in Explorer |
 | `status` | show engine status (format, monitor, recording, inputs) |
 | `levels` | live per-input peak meters; `Esc` / `Enter` / `q` to return |
 | `complete <text>` | show the Tab-completion candidates for a partial command |

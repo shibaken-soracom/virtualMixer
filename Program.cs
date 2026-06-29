@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using NAudio.CoreAudioApi;
 using NAudio.MediaFoundation;
 using VirtualMixer;
@@ -48,8 +49,9 @@ static void PrintHelp()
       vol <id> <0-200>              set input volume (100 = unity, up to 200 = +6 dB boost)
       monitor Rn                    play the mix out to render device Rn (to hear the balance)
       monitor off                   stop monitoring
-      rec start [path]              start recording (default: recordings/mix_yyyyMMdd_HHmmss.m4a)
+      rec start [filename]          start recording into recordings/ (.m4a added if missing)
       rec stop                      stop recording -> encodes to M4A (AAC)
+      explorer                      open the recordings/ folder in Explorer
       status                        show engine status
       levels                        live input meters (Esc/Enter/q to return)
       complete <text>               show Tab-completion candidates for a partial command
@@ -117,6 +119,10 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
 
                 case "rec":
                     HandleRec(engine, parts);
+                    break;
+
+                case "explorer":
+                    OpenRecordingsFolder();
                     break;
 
                 case "status":
@@ -209,14 +215,17 @@ static void HandleMonitor(DeviceCatalog catalog, MixerEngine engine, string[] pa
 
 static void HandleRec(MixerEngine engine, string[] parts)
 {
-    Require(parts.Length >= 2, "usage: rec start [path] | rec stop");
+    Require(parts.Length >= 2, "usage: rec start [filename] | rec stop");
     switch (parts[1].ToLowerInvariant())
     {
         case "start":
-            string path = parts.Length >= 3
-                ? parts[2]
-                : Path.Combine("recordings", $"mix_{DateTime.Now:yyyyMMdd_HHmmss}.m4a");
-            string full = engine.RecStart(path);
+            // The argument is a *filename*, not a path: always save under recordings/,
+            // and ensure it carries the .m4a extension.
+            string fileName = parts.Length >= 3
+                ? EnsureM4aExtension(Path.GetFileName(parts[2]))
+                : $"mix_{DateTime.Now:yyyyMMdd_HHmmss}.m4a";
+            Require(fileName.Length > 0, "usage: rec start [filename] | rec stop");
+            string full = engine.RecStart(Path.Combine("recordings", fileName));
             Console.WriteLine($"  recording -> {full}");
             break;
 
@@ -227,8 +236,23 @@ static void HandleRec(MixerEngine engine, string[] parts)
             break;
 
         default:
-            throw new ArgumentException("usage: rec start [path] | rec stop");
+            throw new ArgumentException("usage: rec start [filename] | rec stop");
     }
+}
+
+/// <summary>Appends ".m4a" unless the name already ends with it (case-insensitive).</summary>
+static string EnsureM4aExtension(string fileName) =>
+    fileName.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase) ? fileName : fileName + ".m4a";
+
+/// <summary>Opens the recordings/ folder in Explorer (creating it first if missing).</summary>
+static void OpenRecordingsFolder()
+{
+    string dir = Path.GetFullPath("recordings");
+    Directory.CreateDirectory(dir); // make sure it exists so Explorer doesn't error
+    // Shell-open the folder path -> opens in the default file manager (Explorer),
+    // sidestepping explorer.exe's argument-quoting quirks.
+    Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
+    Console.WriteLine($"  opening {dir}");
 }
 
 static MMDevice ResolveRender(DeviceCatalog catalog, string token)
@@ -434,7 +458,7 @@ static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, De
 static string[] AllCommands() => new[]
 {
     "devices", "refresh", "add-input", "inputs", "enable", "vol",
-    "monitor", "rec", "status", "levels", "complete", "save", "load", "presets", "help", "quit", "exit",
+    "monitor", "rec", "explorer", "status", "levels", "complete", "save", "load", "presets", "help", "quit", "exit",
 };
 
 static IEnumerable<string> RenderTokens(DeviceCatalog c) =>
