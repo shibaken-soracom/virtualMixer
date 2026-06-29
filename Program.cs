@@ -45,7 +45,9 @@ static void PrintHelp()
       add-input loopback [Rn]       add PC-playback loopback input (default = default render)
       add-input mic Cn              add a microphone / line capture input
       inputs                        list current mixer inputs (id / state / volume / device)
-      enable <id> on|off            route an input into the mix or mute it out
+      mute <id>                     drop an input out of the mix (keeps it; un-mute is instant)
+      unmute <id>                   route a muted input back into the mix
+      remove-input <id>             remove an input entirely (closes its capture device)
       vol <id> <0-200>              set input volume (100 = unity, up to 200 = +6 dB boost)
       monitor Rn                    play the mix out to render device Rn (to hear the balance)
       monitor off                   stop monitoring
@@ -96,14 +98,26 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
 
                 case "inputs":
                     foreach (var s in engine.Inputs)
-                        Console.WriteLine($"  {s.Id}  [{(s.Dead ? "DEAD" : s.Enabled ? "on" : "off")}]  {s.Kind,-8}  vol {s.Volume * 100:0}%  {s.DeviceName}");
+                        Console.WriteLine($"  {s.Id}  [{(s.Dead ? "DEAD" : s.Enabled ? "on" : "muted")}]  {s.Kind,-8}  vol {s.Volume * 100:0}%  {s.DeviceName}");
                     if (!engine.Inputs.Any()) Console.WriteLine("  (no inputs — use 'add-input')");
                     break;
 
-                case "enable":
-                    Require(parts.Length == 3, "usage: enable <id> on|off");
-                    engine.Enable(parts[1], parts[2].Equals("on", StringComparison.OrdinalIgnoreCase));
-                    Console.WriteLine($"  {parts[1]} -> {parts[2]}");
+                case "mute":
+                    Require(parts.Length == 2, "usage: mute <id>");
+                    engine.Enable(parts[1], false);
+                    Console.WriteLine($"  {parts[1]} muted");
+                    break;
+
+                case "unmute":
+                    Require(parts.Length == 2, "usage: unmute <id>");
+                    engine.Enable(parts[1], true);
+                    Console.WriteLine($"  {parts[1]} unmuted");
+                    break;
+
+                case "remove-input":
+                    Require(parts.Length == 2, "usage: remove-input <id>");
+                    engine.RemoveInput(parts[1]);
+                    Console.WriteLine($"  removed {parts[1]}");
                     break;
 
                 case "vol":
@@ -357,7 +371,7 @@ static void DrawMeterRow(InputSource s, int barWidth, int nameWidth, int totalWi
 {
     float peak = Math.Clamp(s.LastPeak, 0f, 1f);
     int filled = (int)Math.Round(Meter.Fraction(peak) * barWidth);
-    string label = s.Enabled ? s.Id : $"{s.Id}!";   // '!' marks a muted/disabled input
+    string label = s.Enabled ? s.Id : $"{s.Id}!";   // '!' marks a muted input
 
     Console.Write($"  {label,-8} ");
 
@@ -428,9 +442,10 @@ static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, De
                 };
             return Enumerable.Empty<string>();
 
-        case "enable":
+        case "mute":
+        case "unmute":
+        case "remove-input":
             if (slot == 1) return InputIds(engine);
-            if (slot == 2) return new[] { "on", "off" };
             return Enumerable.Empty<string>();
 
         case "vol":
@@ -457,7 +472,7 @@ static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, De
 
 static string[] AllCommands() => new[]
 {
-    "devices", "refresh", "add-input", "inputs", "enable", "vol",
+    "devices", "refresh", "add-input", "inputs", "mute", "unmute", "remove-input", "vol",
     "monitor", "rec", "explorer", "status", "levels", "complete", "save", "load", "presets", "help", "quit", "exit",
 };
 

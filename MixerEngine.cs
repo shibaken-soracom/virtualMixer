@@ -80,6 +80,20 @@ public sealed class MixerEngine : IDisposable
     public InputSource Get(string id) =>
         _inputs.TryGetValue(id, out var s) ? s : throw new KeyNotFoundException($"no input '{id}'");
 
+    /// <summary>
+    /// Remove a single input entirely: unroute it from the mix (if routed), stop and dispose its
+    /// WASAPI capture, and drop it from the input table. Unlike <see cref="Enable"/>(off) (a
+    /// non-destructive mute that keeps the capture open), this frees the device — re-adding it
+    /// later yields a fresh id with default volume. Input ids are not renumbered (gaps are kept).
+    /// </summary>
+    public void RemoveInput(string id)
+    {
+        var src = Get(id);                                          // throws if no such input
+        if (src.Enabled) _mixer.RemoveMixerInput(src.MixerNode);    // 1) unroute before disposing
+        src.Dispose();                                              // 2) stop + dispose capture
+        _inputs.Remove(id);                                         // 3) forget it
+    }
+
     /// <summary>Remove and dispose every input, resetting input id numbering.</summary>
     public void ClearInputs()
     {
@@ -129,7 +143,7 @@ public sealed class MixerEngine : IDisposable
                 var src = AddInput(kind, dev);
                 SetVolume(src.Id, ic.Volume);
                 if (!ic.Enabled) Enable(src.Id, false);
-                log.WriteLine($"  restored {src.Id} {kind} <- {src.DeviceName}  vol {ic.Volume * 100:0}%{(ic.Enabled ? "" : " (off)")}");
+                log.WriteLine($"  restored {src.Id} {kind} <- {src.DeviceName}  vol {ic.Volume * 100:0}%{(ic.Enabled ? "" : " (muted)")}");
             }
             catch (Exception ex)
             {
@@ -302,7 +316,7 @@ public sealed class MixerEngine : IDisposable
         w.WriteLine($"Inputs     : {_inputs.Count}");
         foreach (var s in _inputs.Values)
         {
-            string state = s.Dead ? "DEAD" : s.Enabled ? "on " : "off";
+            string state = (s.Dead ? "DEAD" : s.Enabled ? "on" : "muted").PadRight(5);
             w.WriteLine($"  {s.Id}  [{state}]  {s.Kind,-8}  vol {s.Volume * 100,3:0}%  {s.DeviceName}");
         }
     }

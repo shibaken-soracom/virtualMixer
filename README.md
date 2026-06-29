@@ -55,7 +55,9 @@ quit
 | `add-input loopback [Rn]` | add a PC-playback loopback input (default = default render device) |
 | `add-input mic Cn` | add a microphone / line capture input |
 | `inputs` | list current mixer inputs (id / state / volume / device) |
-| `enable <id> on\|off` | route an input into the mix, or mute it out |
+| `mute <id>` | drop an input out of the mix without removing it (un-mute is instant; volume/id kept) |
+| `unmute <id>` | route a muted input back into the mix |
+| `remove-input <id>` | remove an input entirely and close its capture device |
 | `vol <id> <0-200>` | set input volume (`100` = unity, up to `200` = +6 dB boost) |
 | `monitor Rn` | play the mix out to render device `Rn` (to hear the balance) |
 | `monitor off` | stop monitoring |
@@ -81,13 +83,14 @@ is also accepted where a device id is expected (e.g. `add-input mic 3` ≡ `add-
 ### Input ids
 
 Each `add-input` creates an input with an id `i0`, `i1`, … (numbering resets when inputs
-are cleared, e.g. by `load`). Use these ids with `enable` and `vol`.
+are cleared, e.g. by `load`). Use these ids with `mute` / `unmute`, `remove-input` and `vol`.
+`remove-input` does not renumber the remaining inputs, so ids may have gaps (`i0`, `i2`, …).
 
 ## Live levels
 
 `levels` opens a modal, in-place meter view: one bar per input on a **dBFS** scale
 (`-60 dB` floor … `0 dB`), coloured **green** (ok) → **yellow** (hot) → **red** (clipping),
-with the numeric peak and device name. A `!` after the id marks a muted/disabled input.
+with the numeric peak and device name. A `!` after the id marks a muted input.
 Press `Esc`, `Enter`, or `q` to return to the prompt. When stdin is redirected (piped /
 scripted), it prints a single snapshot instead.
 
