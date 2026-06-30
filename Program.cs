@@ -12,6 +12,20 @@ var engine = new MixerEngine();
 PrintBanner();
 catalog.Print(Console.Out);
 
+// Restore the previous session (must run BEFORE subscribing below, so the restore itself does
+// not re-save — keeping any temporarily-missing devices in the file for next time).
+if (args.Contains("--no-restore"))
+    Console.WriteLine("(--no-restore: skipping session restore)");
+else
+    TryRestoreSession(catalog, engine);
+
+// From here on, auto-save the live state on every change (atomic write; failures are non-fatal).
+engine.StateChanged += () =>
+{
+    try { SessionStore.SaveSession(engine.ExportConfig()); }
+    catch (Exception ex) { Console.WriteLine($"WARN: could not save session: {ex.Message}"); }
+};
+
 try
 {
     Repl(catalog, engine);
@@ -60,11 +74,49 @@ static void PrintHelp()
       save <name>                   save current inputs + monitor as a preset
       load <name>                   load a preset (replaces current setup)
       presets                       list saved presets
+      forget                        clear the auto-saved session (next launch starts empty)
       help                          this help
       quit | exit                   shut down cleanly
 
     Press <Tab> to auto-complete commands, sub-commands, device ids (R0/C0..) and input ids.
+    The mixer auto-saves your setup and restores it on next launch ('forget' to clear,
+    run with --no-restore to skip restoring once).
     """);
+}
+
+/// <summary>
+/// Restore the auto-saved session at startup. Never throws: a missing/corrupt/newer file degrades
+/// to an empty mix with a clear message. Reuses <see cref="MixerEngine.ApplyConfig"/>, which already
+/// skips unavailable devices gracefully.
+/// </summary>
+static void TryRestoreSession(DeviceCatalog catalog, MixerEngine engine)
+{
+    switch (SessionStore.TryLoadSession(out var cfg, out var detail))
+    {
+        case SessionLoadStatus.None:
+            return; // first run / cleared — start with an empty mix, nothing to report
+
+        case SessionLoadStatus.Corrupt:
+            SessionStore.BackupCorrupt();
+            Console.WriteLine($"WARN: previous session is unreadable ({detail}) — ignored, " +
+                              $"moved to {SessionStore.Path}.bak. Starting with an empty mix.");
+            return;
+
+        case SessionLoadStatus.TooNew:
+            Console.WriteLine($"WARN: session file is from a newer version ({detail}) — not loaded " +
+                              "to avoid misconfiguration (file kept). Starting with an empty mix.");
+            return;
+
+        case SessionLoadStatus.Ok:
+            int total = cfg!.Inputs.Count;
+            Console.WriteLine($"Restoring previous session ({total} input{(total == 1 ? "" : "s")})...");
+            engine.ApplyConfig(cfg, catalog, Console.Out);
+            int restored = engine.Inputs.Count;
+            if (restored < total)
+                Console.WriteLine($"  {restored}/{total} inputs restored " +
+                                  $"({total - restored} skipped — device(s) not connected; kept in session for next time)");
+            return;
+    }
 }
 
 static void Repl(DeviceCatalog catalog, MixerEngine engine)
@@ -165,6 +217,11 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
                 case "presets":
                     var presetNames = PresetStore.List();
                     Console.WriteLine(presetNames.Count == 0 ? "  (no presets)" : "  " + string.Join("   ", presetNames));
+                    break;
+
+                case "forget":
+                    SessionStore.ClearSession();
+                    Console.WriteLine("  session cleared — next launch starts with an empty mix");
                     break;
 
                 case "help":
@@ -473,7 +530,7 @@ static IEnumerable<string> CompletionCandidates(IReadOnlyList<string> tokens, De
 static string[] AllCommands() => new[]
 {
     "devices", "refresh", "add-input", "inputs", "mute", "unmute", "remove-input", "vol",
-    "monitor", "rec", "explorer", "status", "levels", "complete", "save", "load", "presets", "help", "quit", "exit",
+    "monitor", "rec", "explorer", "status", "levels", "complete", "save", "load", "presets", "forget", "help", "quit", "exit",
 };
 
 static IEnumerable<string> RenderTokens(DeviceCatalog c) =>

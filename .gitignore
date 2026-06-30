@@ -16,6 +16,11 @@ recordings/*
 presets/*
 !presets/.gitkeep
 
+# Auto-saved session (machine-specific device ids; restored on next launch)
+session.json
+session.json.tmp
+session.json.bak
+
 # IDE / user files
 .vs/
 *.user

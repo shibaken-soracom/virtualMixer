@@ -42,6 +42,19 @@ public sealed class MixerEngine : IDisposable
     public string? MonitorDeviceName => _monitorDeviceName;
     public string? MonitorDeviceId => _monitorDeviceId;
 
+    /// <summary>
+    /// Raised after any change that affects <see cref="ExportConfig"/> (inputs added/removed,
+    /// volume, mute state, monitor selection). The host subscribes to persist the session.
+    /// Suppressed during <see cref="ApplyConfig"/> (which raises once at the end instead) and
+    /// during <see cref="Dispose"/> (so teardown never persists an emptied state).
+    /// </summary>
+    public event Action? StateChanged;
+    private bool _suspendChange;
+    private void RaiseChanged()
+    {
+        if (!_suspendChange) StateChanged?.Invoke();
+    }
+
     // ---- inputs ---------------------------------------------------------
 
     public InputSource AddInput(SourceKind kind, MMDevice device)
@@ -55,7 +68,7 @@ public sealed class MixerEngine : IDisposable
         var id = "i" + _nextInputNumber++;
         var src = new InputSource(id, kind, device, MixFormat);
         _inputs[id] = src;
-        Enable(id, true);
+        Enable(id, true); // persists via the enable transition below (input is already in the table)
         return src;
     }
 
@@ -67,15 +80,21 @@ public sealed class MixerEngine : IDisposable
             src.ClearBuffer(); // avoid replaying stale buffered audio
             _mixer.AddMixerInput(src.MixerNode);
             src.Enabled = true;
+            RaiseChanged();
         }
         else if (!on && src.Enabled)
         {
             _mixer.RemoveMixerInput(src.MixerNode);
             src.Enabled = false;
+            RaiseChanged();
         }
     }
 
-    public void SetVolume(string id, float volume) => Get(id).Volume = Math.Clamp(volume, 0f, 2f);
+    public void SetVolume(string id, float volume)
+    {
+        Get(id).Volume = Math.Clamp(volume, 0f, 2f);
+        RaiseChanged();
+    }
 
     public InputSource Get(string id) =>
         _inputs.TryGetValue(id, out var s) ? s : throw new KeyNotFoundException($"no input '{id}'");
@@ -92,6 +111,7 @@ public sealed class MixerEngine : IDisposable
         if (src.Enabled) _mixer.RemoveMixerInput(src.MixerNode);    // 1) unroute before disposing
         src.Dispose();                                              // 2) stop + dispose capture
         _inputs.Remove(id);                                         // 3) forget it
+        RaiseChanged();
     }
 
     /// <summary>Remove and dispose every input, resetting input id numbering.</summary>
@@ -104,6 +124,7 @@ public sealed class MixerEngine : IDisposable
         }
         _inputs.Clear();
         _nextInputNumber = 0;
+        RaiseChanged(); // suppressed when called from ApplyConfig; covers any future direct callers
     }
 
     // ---- presets --------------------------------------------------------
@@ -117,49 +138,60 @@ public sealed class MixerEngine : IDisposable
         DeviceRef? monitor = _monitorDeviceId != null && _monitorDeviceName != null
             ? new DeviceRef(_monitorDeviceId, _monitorDeviceName)
             : null;
-        return new MixerConfig(1, monitor, inputs);
+        return new MixerConfig(SessionStore.CurrentVersion, monitor, inputs);
     }
 
     /// <summary>Replace the current setup with a saved config, resolving devices via the catalog.</summary>
     public void ApplyConfig(MixerConfig cfg, DeviceCatalog catalog, TextWriter log)
     {
-        MonitorOff();
-        ClearInputs();
-
-        foreach (var ic in cfg.Inputs)
+        // Suppress per-step change events while rebuilding; persist once at the end so a manual
+        // 'load' saves the result, but the startup restore (run before the host subscribes) does not.
+        _suspendChange = true;
+        try
         {
-            bool isLoopback = string.Equals(ic.Kind, nameof(SourceKind.Loopback), StringComparison.OrdinalIgnoreCase);
-            var kind = isLoopback ? SourceKind.Loopback : SourceKind.Capture;
-            MMDevice? dev = isLoopback
-                ? catalog.FindRender(ic.DeviceId, ic.DeviceName)
-                : catalog.FindCapture(ic.DeviceId, ic.DeviceName);
-            if (dev == null)
+            MonitorOff();
+            ClearInputs();
+
+            foreach (var ic in cfg.Inputs)
             {
-                log.WriteLine($"  ! skipped {kind} input: device not found ({ic.DeviceName})");
-                continue;
+                bool isLoopback = string.Equals(ic.Kind, nameof(SourceKind.Loopback), StringComparison.OrdinalIgnoreCase);
+                var kind = isLoopback ? SourceKind.Loopback : SourceKind.Capture;
+                MMDevice? dev = isLoopback
+                    ? catalog.FindRender(ic.DeviceId, ic.DeviceName)
+                    : catalog.FindCapture(ic.DeviceId, ic.DeviceName);
+                if (dev == null)
+                {
+                    log.WriteLine($"  ! skipped {kind} input: device not found ({ic.DeviceName})");
+                    continue;
+                }
+                try
+                {
+                    var src = AddInput(kind, dev);
+                    SetVolume(src.Id, ic.Volume);
+                    if (!ic.Enabled) Enable(src.Id, false);
+                    log.WriteLine($"  restored {src.Id} {kind} <- {src.DeviceName}  vol {ic.Volume * 100:0}%{(ic.Enabled ? "" : " (muted)")}");
+                }
+                catch (Exception ex)
+                {
+                    log.WriteLine($"  ! failed to add {kind} input ({ic.DeviceName}): {ex.Message}");
+                }
             }
-            try
+
+            if (cfg.Monitor != null)
             {
-                var src = AddInput(kind, dev);
-                SetVolume(src.Id, ic.Volume);
-                if (!ic.Enabled) Enable(src.Id, false);
-                log.WriteLine($"  restored {src.Id} {kind} <- {src.DeviceName}  vol {ic.Volume * 100:0}%{(ic.Enabled ? "" : " (muted)")}");
-            }
-            catch (Exception ex)
-            {
-                log.WriteLine($"  ! failed to add {kind} input ({ic.DeviceName}): {ex.Message}");
+                var mon = catalog.FindRender(cfg.Monitor.Id, cfg.Monitor.Name);
+                if (mon == null)
+                    log.WriteLine($"  ! monitor device not found ({cfg.Monitor.Name})");
+                else
+                    try { SetMonitor(mon); log.WriteLine($"  monitor -> {mon.FriendlyName}"); }
+                    catch (Exception ex) { log.WriteLine($"  ! monitor not set: {ex.Message}"); }
             }
         }
-
-        if (cfg.Monitor != null)
+        finally
         {
-            var mon = catalog.FindRender(cfg.Monitor.Id, cfg.Monitor.Name);
-            if (mon == null)
-                log.WriteLine($"  ! monitor device not found ({cfg.Monitor.Name})");
-            else
-                try { SetMonitor(mon); log.WriteLine($"  monitor -> {mon.FriendlyName}"); }
-                catch (Exception ex) { log.WriteLine($"  ! monitor not set: {ex.Message}"); }
+            _suspendChange = false;
         }
+        RaiseChanged(); // persist the applied config once (no-op at startup, before the host subscribes)
     }
 
     // ---- monitor --------------------------------------------------------
@@ -188,6 +220,7 @@ public sealed class MixerEngine : IDisposable
         _monitorOut = output;
         _monitorDeviceId = device.ID;
         _monitorDeviceName = device.FriendlyName;
+        RaiseChanged();
     }
 
     public void MonitorOff()
@@ -196,6 +229,7 @@ public sealed class MixerEngine : IDisposable
         // If we are still recording, the pump must take over pulling the mixer.
         if (_recorder.IsRecording)
             StartPump();
+        RaiseChanged();
     }
 
     private void StopMonitorInternal()
@@ -335,6 +369,10 @@ public sealed class MixerEngine : IDisposable
 
     public void Dispose()
     {
+        // Teardown must never persist: suppress change events so the emptying below cannot
+        // overwrite the saved session with a blank state.
+        _suspendChange = true;
+
         // Strict order: stop recording (finalise file) -> stop pullers -> stop captures.
         if (_recorder.IsRecording)
         {
