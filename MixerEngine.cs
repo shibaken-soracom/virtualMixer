@@ -38,6 +38,10 @@ public sealed class MixerEngine : IDisposable
     }
 
     public IReadOnlyCollection<InputSource> Inputs => _inputs.Values;
+
+    /// <summary>Endpoint IDs of all added inputs — used to mark them in the device list.</summary>
+    public IReadOnlySet<string> InputDeviceIds => _inputs.Values.Select(s => s.DeviceId).ToHashSet();
+
     public bool IsRecording => _recorder.IsRecording;
     public string? MonitorDeviceName => _monitorDeviceName;
     public string? MonitorDeviceId => _monitorDeviceId;

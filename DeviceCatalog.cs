@@ -13,7 +13,6 @@ public sealed class DeviceCatalog : IDisposable
     public IReadOnlyList<MMDevice> RenderDevices { get; private set; } = Array.Empty<MMDevice>();
     public IReadOnlyList<MMDevice> CaptureDevices { get; private set; } = Array.Empty<MMDevice>();
     public string? DefaultRenderId { get; private set; }
-    public string? DefaultCaptureId { get; private set; }
 
     public DeviceCatalog() => Refresh();
 
@@ -26,7 +25,6 @@ public sealed class DeviceCatalog : IDisposable
             .EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
             .ToList();
         DefaultRenderId = TryGetDefaultId(DataFlow.Render);
-        DefaultCaptureId = TryGetDefaultId(DataFlow.Capture);
     }
 
     private string? TryGetDefaultId(DataFlow flow)
@@ -61,23 +59,29 @@ public sealed class DeviceCatalog : IDisposable
     private static MMDevice? FindIn(IReadOnlyList<MMDevice> list, string id, string name) =>
         list.FirstOrDefault(d => d.ID == id) ?? list.FirstOrDefault(d => d.FriendlyName == name);
 
-    public void Print(TextWriter w)
+    /// <summary>
+    /// Print the render/capture device lists. Devices whose endpoint id is in
+    /// <paramref name="addedInputIds"/> (i.e. currently added to the mixer via add-input) are
+    /// marked with '*'. Loopback inputs carry a render id and mic inputs a capture id, so a single
+    /// set marks each device in the correct section.
+    /// </summary>
+    public void Print(TextWriter w, IReadOnlySet<string> addedInputIds)
     {
         w.WriteLine("Render devices (use for loopback source / monitor output):");
         for (int i = 0; i < RenderDevices.Count; i++)
         {
             var d = RenderDevices[i];
-            string mark = d.ID == DefaultRenderId ? " *" : "  ";
+            string mark = addedInputIds.Contains(d.ID) ? " *" : "  ";
             w.WriteLine($"  R{i}{mark} {d.FriendlyName}");
         }
         w.WriteLine("Capture devices (use for mic / line input):");
         for (int i = 0; i < CaptureDevices.Count; i++)
         {
             var d = CaptureDevices[i];
-            string mark = d.ID == DefaultCaptureId ? " *" : "  ";
+            string mark = addedInputIds.Contains(d.ID) ? " *" : "  ";
             w.WriteLine($"  C{i}{mark} {d.FriendlyName}");
         }
-        w.WriteLine("  (* = system default)");
+        w.WriteLine("  (* = added as input)");
     }
 
     public void Dispose() => _enumerator.Dispose();

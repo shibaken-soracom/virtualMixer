@@ -10,7 +10,6 @@ var catalog = new DeviceCatalog();
 var engine = new MixerEngine();
 
 PrintBanner();
-catalog.Print(Console.Out);
 
 // Restore the previous session (must run BEFORE subscribing below, so the restore itself does
 // not re-save — keeping any temporarily-missing devices in the file for next time).
@@ -18,6 +17,9 @@ if (args.Contains("--no-restore"))
     Console.WriteLine("(--no-restore: skipping session restore)");
 else
     TryRestoreSession(catalog, engine);
+
+// Print the device list after restore so the '*' marks reflect any restored inputs.
+PrintDevices(catalog, engine);
 
 // From here on, auto-save the live state on every change (atomic write; failures are non-fatal).
 engine.StateChanged += () =>
@@ -49,6 +51,10 @@ static void PrintBanner()
     Console.WriteLine("loopback-capture (e.g. monitor on headphones, capture the speakers) — feedback.");
     Console.WriteLine();
 }
+
+/// <summary>Print the device catalog, marking devices currently added as mixer inputs with '*'.</summary>
+static void PrintDevices(DeviceCatalog catalog, MixerEngine engine) =>
+    catalog.Print(Console.Out, engine.InputDeviceIds);
 
 static void PrintHelp()
 {
@@ -136,12 +142,12 @@ static void Repl(DeviceCatalog catalog, MixerEngine engine)
             switch (parts[0].ToLowerInvariant())
             {
                 case "devices":
-                    catalog.Print(Console.Out);
+                    PrintDevices(catalog, engine);
                     break;
 
                 case "refresh":
                     catalog.Refresh();
-                    catalog.Print(Console.Out);
+                    PrintDevices(catalog, engine);
                     break;
 
                 case "add-input":

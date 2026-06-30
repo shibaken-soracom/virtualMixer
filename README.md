@@ -50,7 +50,7 @@ quit
 
 | Command | Description |
 |---|---|
-| `devices` | list render (`R0..`) and capture (`C0..`) devices; `*` = system default |
+| `devices` | list render (`R0..`) and capture (`C0..`) devices; `*` = added as input |
 | `refresh` | re-enumerate devices (after plugging / unplugging hardware) |
 | `add-input loopback [Rn]` | add a PC-playback loopback input (default = default render device) |
 | `add-input mic Cn` | add a microphone / line capture input |
