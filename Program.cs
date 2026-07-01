@@ -28,6 +28,27 @@ engine.StateChanged += () =>
     catch (Exception ex) { Console.WriteLine($"WARN: could not save session: {ex.Message}"); }
 };
 
+// Graceful Ctrl+C. A raw Ctrl+C hard-kills the process, so the REPL's `finally`
+// (engine.Dispose) never runs — abandoning an in-progress recording as an unfinalised
+// temp WAV whose RIFF/data sizes are still 0, i.e. unplayable. Intercept it and run the
+// same clean shutdown as `quit`: engine.Dispose() finalises the WAV and encodes the M4A.
+// A second Ctrl+C while that is in progress falls through to the default (force-quit).
+var shuttingDown = 0;
+Console.CancelKeyPress += (_, e) =>
+{
+    if (Interlocked.Exchange(ref shuttingDown, 1) != 0) return; // 2nd Ctrl+C -> let it terminate
+    e.Cancel = true;
+    Console.WriteLine();
+    Console.WriteLine(engine.IsRecording
+        ? "^C — finishing the recording (encoding to M4A) and shutting down... (Ctrl+C again to force-quit)"
+        : "^C — shutting down...");
+    try { engine.Dispose(); }
+    catch (Exception ex) { Console.WriteLine($"WARN: shutdown: {ex.Message}"); }
+    try { catalog.Dispose(); } catch { }
+    try { MediaFoundationApi.Shutdown(); } catch { }
+    Environment.Exit(0);
+};
+
 try
 {
     Repl(catalog, engine);
