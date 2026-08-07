@@ -62,7 +62,7 @@ quit
 | `monitor Rn` | play the mix out to render device `Rn` (to hear the balance) |
 | `monitor off` | stop monitoring |
 | `rec start [filename]` | start recording into `recordings/` (default `mix_yyyyMMdd_HHmmss.m4a`); `.m4a` is appended if missing |
-| `rec stop` | stop recording → encodes to M4A (AAC, 192 kbps) |
+| `rec stop` | stop recording → encodes to M4A (AAC, 64 kbps) |
 | `explorer` | open the `recordings/` folder in Explorer |
 | `status` | show engine status (format, monitor, recording, inputs) |
 | `levels` | live per-input peak meters; `Esc` / `Enter` / `q` to return |
@@ -152,7 +152,7 @@ WasapiCapture (mic) ──┘                                                   
 
 ## Notes & limitations
 
-- Output is **M4A (AAC) only**, fixed at 192 kbps. The intermediate WAV is bounded by the
+- Output is **M4A (AAC) only**, fixed at 64 kbps. The intermediate WAV is bounded by the
   ~4 GB RIFF limit (≈6 h at 48 kHz/stereo/float).
 - The mix is **not** routed to a virtual microphone — recording / monitoring only
   (see the scope note above).

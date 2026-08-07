@@ -24,7 +24,7 @@ public sealed class Recorder : IDisposable
     /// <summary>Bytes written to the current temp WAV (for the ~4 GB RIFF limit check).</summary>
     public long BytesWritten => _writer?.Length ?? 0;
 
-    public Recorder(WaveFormat format, int bitrate = 192000)
+    public Recorder(WaveFormat format, int bitrate = 64000)
     {
         _format = format;
         _bitrate = bitrate;
