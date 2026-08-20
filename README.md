@@ -12,6 +12,12 @@ Uses only Windows-standard APIs (WASAPI + Media Foundation) via
 > (OBS / Zoom / Discord) can select — that needs a kernel audio driver (e.g. VB-CABLE).
 > Here the mix goes to a **recording** and/or **live monitor** only.
 
+> **Sibling project:** a macOS version lives at
+> [shibaken-soracom/virtualMixer_M](https://github.com/shibaken-soracom/virtualMixer_M).
+> Both provide essentially the same features and commands, but the implementations are
+> entirely separate — each is built on its OS-native audio stack (WASAPI / Media
+> Foundation here vs. Core Audio / AVFoundation on macOS) and shares no code.
+
 ## Requirements
 
 - Windows 10 / 11
